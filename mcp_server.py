@@ -20,6 +20,7 @@ Environment Variables:
 import asyncio
 import json
 import logging
+import base64
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 import httpx
@@ -44,6 +45,30 @@ load_dotenv()
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("wave-mcp-server")
+
+# Helper method for decoding business id
+def decode_business_id(encoded_business_id: str) -> str:
+    """
+    Decode the base64 encoded business ID and remove the 'Business:' prefix
+    
+    Args:
+        encoded_business_id (str): The base64 encoded business ID
+    
+    Returns:
+        str: The decoded business ID
+    """
+    try:
+        # Decode the base64 string
+        decoded = base64.b64decode(encoded_business_id).decode('utf-8')
+        
+        # Remove the 'Business:' prefix if it exists
+        if decoded.startswith('Business:'):
+            return decoded[len('Business:'):]
+        
+        return decoded
+    except Exception as e:
+        logger.error(f"Failed to decode business ID: {e}")
+        return encoded_business_id
 
 class WaveClient:
     """Client for interacting with Wave's GraphQL API"""
@@ -904,7 +929,8 @@ async def handle_call_tool(name: str, arguments: dict) -> list[TextContent]:
         if name == "set_business":
             business_id = arguments["business_id"]
             wave_client.business_id = business_id
-            return [TextContent(type="text", text=f"Set active business to: {business_id}")]
+            decoded_business_id = decode_business_id(business_id)
+            return [TextContent(type="text", text=f"Set active business to: {decoded_business_id}")]
         
         elif name == "get_expense_accounts":
             if not wave_client.business_id:
@@ -1313,8 +1339,8 @@ async def main():
     # Set business ID if provided
     business_id = os.getenv("WAVE_BUSINESS_ID")
     if business_id:
-        wave_client.business_id = business_id
         logger.info(f"Using business ID: {business_id}")
+        wave_client.business_id = base64.b64encode(f"Business:{business_id}".encode())
     else:
         logger.info("No business ID provided, will need to set via tool")
     
@@ -1328,7 +1354,7 @@ async def main():
             # Auto-select first business if only one
             if len(businesses) == 1:
                 wave_client.business_id = businesses[0]["node"]["id"]
-                logger.info(f"Auto-selected business: {businesses[0]['node']['name']} ({wave_client.business_id})")
+                logger.info(f"Auto-selected business: {businesses[0]['node']['name']} ({decode_business_id(wave_client.business_id)})")
         
     except Exception as e:
         logger.error(f"Failed to connect to Wave API: {e}")
