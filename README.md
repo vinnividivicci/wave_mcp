@@ -38,10 +38,7 @@ WAVE_ACCESS_TOKEN=your_wave_oauth2_access_token_here
 
 ## Getting Your Wave Access Token
 
-1. Log in to your [Wave account](https://www.waveapps.com)
-2. Navigate to **Settings** → **API Access**
-3. Create a new OAuth2 application
-4. Generate an OAuth2 Bearer access token with appropriate permissions
+1. Follow this guide: https://developer.waveapps.com/hc/en-us/articles/360020948171-Create-a-Wave-Account-and-Test-Businesses#application
 
 > **Note**: Wave API access may require approval. Check Wave's current developer program status.
 
