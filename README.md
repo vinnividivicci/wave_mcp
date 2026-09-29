@@ -13,7 +13,7 @@ A Model Context Protocol (MCP) server that integrates Claude with Wave Accountin
 
 ## Prerequisites
 
-- Python 3.8 or higher
+- Python 3.10 or higher
 - Wave Business account with API access
 - Claude Desktop application
 - Wave OAuth2 access token
