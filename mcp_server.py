@@ -204,15 +204,12 @@ class WaveClient:
             current_page = page_info.get("currentPage", page)
             total_pages = page_info.get("totalPages", 1)
             
-            if current_page >= total_pages:
+            # Stop at the last page; an empty page also ends the loop so a bad
+            # totalPages can't cause an infinite loop
+            if current_page >= total_pages or not page_accounts:
                 break
-                
+
             page += 1
-            
-            # Safety check to prevent infinite loops
-            if page > 20:
-                logger.warning("API DEBUG: Stopped pagination after 20 pages to prevent infinite loop")
-                break
         
         logger.info(f"API DEBUG: TOTAL RETRIEVED: {len(all_accounts)} accounts across {page} pages")
         logger.info(f"API DEBUG: Expected total from Wave UI: 7 Income accounts")
