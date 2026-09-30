@@ -27,15 +27,19 @@ import os
 from dotenv import load_dotenv
 from difflib import SequenceMatcher
 
-from mcp.server import Server
-from mcp.server.models import InitializationOptions
+from mcp.server import Server, ServerRequestContext
 from mcp.types import (
+    CallToolRequestParams,
+    CallToolResult,
+    ListResourcesResult,
+    ListToolsResult,
+    PaginatedRequestParams,
+    ReadResourceRequestParams,
+    ReadResourceResult,
     Resource,
-    Tool,
     TextContent,
-    ImageContent,
-    EmbeddedResource,
-    LoggingLevel
+    TextResourceContents,
+    Tool,
 )
 
 # Load environment variables
@@ -200,15 +204,12 @@ class WaveClient:
             current_page = page_info.get("currentPage", page)
             total_pages = page_info.get("totalPages", 1)
             
-            if current_page >= total_pages:
+            # Stop at the last page; an empty page also ends the loop so a bad
+            # totalPages can't cause an infinite loop
+            if current_page >= total_pages or not page_accounts:
                 break
-                
+
             page += 1
-            
-            # Safety check to prevent infinite loops
-            if page > 20:
-                logger.warning("API DEBUG: Stopped pagination after 20 pages to prevent infinite loop")
-                break
         
         logger.info(f"API DEBUG: TOTAL RETRIEVED: {len(all_accounts)} accounts across {page} pages")
         logger.info(f"API DEBUG: Expected total from Wave UI: 7 Income accounts")
@@ -645,12 +646,9 @@ class WaveClient:
 # Initialize Wave client
 wave_client = None
 
-app = Server("wave-accounting")
-
-@app.list_resources()
-async def handle_list_resources() -> list[Resource]:
+async def handle_list_resources(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListResourcesResult:
     """List available resources"""
-    return [
+    return ListResourcesResult(resources=[
         Resource(
             uri="wave://businesses",
             name="Wave Businesses",
@@ -675,11 +673,16 @@ async def handle_list_resources() -> list[Resource]:
             description="Your business customers",
             mimeType="application/json",
         )
-    ]
+    ])
 
-@app.read_resource()
-async def handle_read_resource(uri: str) -> str:
+async def handle_read_resource(ctx: ServerRequestContext, params: ReadResourceRequestParams) -> ReadResourceResult:
     """Read a specific resource"""
+    uri = str(params.uri)
+    text = await read_resource_json(uri)
+    return ReadResourceResult(contents=[TextResourceContents(uri=uri, mimeType="application/json", text=text)])
+
+async def read_resource_json(uri: str) -> str:
+    """Fetch a resource's data as a JSON string"""
     global wave_client
     
     if not wave_client:
@@ -710,10 +713,9 @@ async def handle_read_resource(uri: str) -> str:
     else:
         raise ValueError(f"Unknown resource: {uri}")
 
-@app.list_tools()
-async def handle_list_tools() -> list[Tool]:
+async def handle_list_tools(ctx: ServerRequestContext, params: PaginatedRequestParams | None) -> ListToolsResult:
     """List available tools"""
-    return [
+    return ListToolsResult(tools=[
         Tool(
             name="create_expense_from_receipt",
             description="Create an expense in Wave from receipt data. Vendor is optional - expenses can be created without vendor association and vendors can be added later.",
@@ -890,11 +892,15 @@ async def handle_list_tools() -> list[Tool]:
                 "additionalProperties": False
             }
         )
-    ]
+    ])
 
-@app.call_tool()
-async def handle_call_tool(name: str, arguments: dict) -> list[TextContent]:
+async def handle_call_tool(ctx: ServerRequestContext, params: CallToolRequestParams) -> CallToolResult:
     """Handle tool calls"""
+    content = await run_tool(params.name, params.arguments or {})
+    return CallToolResult(content=content)
+
+async def run_tool(name: str, arguments: dict) -> list[TextContent]:
+    """Execute a tool and return its text output"""
     global wave_client
     
     if not wave_client:
@@ -1297,6 +1303,15 @@ async def handle_call_tool(name: str, arguments: dict) -> list[TextContent]:
         logger.error(f"Error in tool {name}: {str(e)}")
         return [TextContent(type="text", text=f"Error: {str(e)}")]
 
+app = Server(
+    "wave-accounting",
+    version="1.0.0",
+    on_list_resources=handle_list_resources,
+    on_read_resource=handle_read_resource,
+    on_list_tools=handle_list_tools,
+    on_call_tool=handle_call_tool,
+)
+
 async def main():
     """Main entry point"""
     global wave_client
@@ -1338,22 +1353,7 @@ async def main():
     from mcp.server.stdio import stdio_server
     
     async with stdio_server() as (read_stream, write_stream):
-        await app.run(
-            read_stream, 
-            write_stream, 
-            InitializationOptions(
-                server_name="wave-accounting",
-                server_version="1.0.0",
-                capabilities=app.get_capabilities(
-                    notification_options=type('NotificationOptions', (), {
-                        'resources_changed': False,
-                        'tools_changed': False,
-                        'prompts_changed': False
-                    })(),
-                    experimental_capabilities={}
-                )
-            )
-        )
+        await app.run(read_stream, write_stream, app.create_initialization_options())
 
 if __name__ == "__main__":
     asyncio.run(main())
